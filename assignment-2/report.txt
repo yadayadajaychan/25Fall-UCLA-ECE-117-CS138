@@ -94,4 +94,7 @@ I can overwrite the return address with 0x401236 to call
 
 == Question 2
 
-TODO
+Even if the `win/print_flag` function was removed from this binary,
+you can still achieve remote code execution without an explicit call
+to the `system` function by using Return Oriented Programming to
+set `%rdi` to point at `"/bin/bash"` and return to `system`.
