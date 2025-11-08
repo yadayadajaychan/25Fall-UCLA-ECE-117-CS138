@@ -98,3 +98,187 @@ Even if the `win/print_flag` function was removed from this binary,
 you can still achieve remote code execution without an explicit call
 to the `system` function by using Return Oriented Programming to
 set `%rdi` to point at `"/bin/bash"` and return to `system`.
+
+= Part 3
+
+First I found the return address of the function `game` at `0x7fffffffdf98`.
+Below the return address is the saved `%rbp` and below that is
+the canary at `0x7fffffffdf88`. To make sure that this is the canary,
+I set the value to `0` and continued execution. As expected,
+the program crashes and says that stack smashing was detected.
+
+```
+Breakpoint 1, game () at killing-the-canary.c:30
+30	    printf("Welcome to the game!\n");
+(gdb) bt
+#0  game () at killing-the-canary.c:30
+#1  0x0000000000401411 in main () at killing-the-canary.c:47
+(gdb) x/16xg $sp
+0x7fffffffdf20:	0x00007fffffffdf40	0x00007ffff7c8da16
+0x7fffffffdf30:	0x0000000000000800	0x00007ffff7e0a4e0
+0x7fffffffdf40:	0x00007fffffffdf80	0x00007ffff7c8342f
+0x7fffffffdf50:	0x0000008e00000006	0x0000000000000000
+0x7fffffffdf60:	0x0000000000000000	0x0000000000000000
+0x7fffffffdf70:	0x00007fffffffe0c8	0x0000000000000001
+0x7fffffffdf80:	0x00007fffffffdf90	0x45e693162b121800
+0x7fffffffdf90:	0x00007fffffffdfa0	0x0000000000401411
+(gdb) set {long}0x7fffffffdf88 = 0
+(gdb) x/16xg $sp
+0x7fffffffdf20:	0x00007fffffffdf40	0x00007ffff7c8da16
+0x7fffffffdf30:	0x0000000000000800	0x00007ffff7e0a4e0
+0x7fffffffdf40:	0x00007fffffffdf80	0x00007ffff7c8342f
+0x7fffffffdf50:	0x0000008e00000006	0x0000000000000000
+0x7fffffffdf60:	0x0000000000000000	0x0000000000000000
+0x7fffffffdf70:	0x00007fffffffe0c8	0x0000000000000001
+0x7fffffffdf80:	0x00007fffffffdf90	0x0000000000000000
+0x7fffffffdf90:	0x00007fffffffdfa0	0x0000000000401411
+(gdb) c
+Continuing.
+Welcome to the game!
+What's your name? ethan
+Hello, ethan
+! Let's play a game.
+What's your message? hello
+Your message is hello
+
+*** stack smashing detected ***: terminated
+
+Program received signal SIGABRT, Aborted.
+0x00007ffff7c9894c in ?? () from /usr/lib/libc.so.6
+```
+
+Now that we know where the canary is,
+we need to read the value by exploiting the format string.
+I stepped into the printf function and found the current stack pointer.
+
+```
+(gdb) bt
+#0  0x0000000000401100 in printf@plt ()
+#1  0x000000000040138c in game () at killing-the-canary.c:35
+#2  0x0000000000401411 in main () at killing-the-canary.c:47
+(gdb) p $rsp
+$2 = (void *) 0x7fffffffdf18
+(gdb) x/1xg $rsp
+0x7fffffffdf18:	0x000000000040138c
+```
+
+The stack pointer is currently pointing to the return address.
+The canary is 0x70 (112) bytes above the return address.
+This makes it the 19th (112/8 + 5) argument to `printf`.
+We can grab this value by using `"%19$lx"` as the format string to `printf`.
+
+Next we have to find where the `message` buffer is.
+
+```
+Breakpoint 1, game () at killing-the-canary.c:30
+30	    printf("Welcome to the game!\n");
+(gdb) p &message
+$1 = (char (*)[64]) 0x7fffffffdf40
+(gdb) x/16xg $rsp
+0x7fffffffdf20:	0x00007fffffffdf40	0x00007ffff7c8da16
+0x7fffffffdf30:	0x0000000000000800	0x00007ffff7e0a4e0
+0x7fffffffdf40:	0x00007fffffffdf80	0x00007ffff7c8342f
+0x7fffffffdf50:	0x0000008e00000006	0x0000000000000000
+0x7fffffffdf60:	0x0000000000000000	0x0000000000000000
+0x7fffffffdf70:	0x00007fffffffe0c8	0x0000000000000001
+0x7fffffffdf80:	0x00007fffffffdf90	0x60d737575f647500
+0x7fffffffdf90:	0x00007fffffffdfa0	0x0000000000401411
+```
+
+`message` is  72 bytes away from the canary.
+After overflowing the buffer and writing the correct value of the canary,
+we can overwrite the saved rbp and set the return address to `print_flag`.
+
+```
+(gdb) p print_flag
+$3 = {void ()} 0x401236 <print_flag>
+```
+
+== Question 1
+
+```
+Arch:       amd64-64-little
+RELRO:      Partial RELRO
+Stack:      Canary found
+NX:         NX enabled
+PIE:        No PIE (0x400000)
+SHSTK:      Enabled
+IBT:        Enabled
+Stripped:   No
+Debuginfo:  Yes
+```
+
+- RELRO is Relocation Read-Only.
+  Full RELRO makes the Global Offset Table (GOT) read-only after startup.
+  Partial means the GOT remains writable.
+  This means an attacker can overwrite GOT entries once they can write to
+  arbitrary memory.
+- A stack canary is a random value placed before the return address that
+  the function checks before returning. This prevents buffer overflows
+  from being able to hijack control flow. Canaries are only useful
+  if the attacker does not know its value, so they can be bypassed
+  if the attacker can read memory.
+- NX is non-executable memory and prevents execution of memory marked as
+  non-executable. These are usually memory that are writable such as
+  the stack or heap. While this prevents the execution of injected shellcode,
+  it doesn't stop attacks that reuse code, such as ROP or ret2libc.
+- PIE is Position Independent Executable and means that the executable
+  can be loaded anywhere in memory and work fine. This is useful for
+  Address Space Layout Randomization (ASLR), which makes it harder for attackers
+  to ROP with random addresses. In this case, it is disabled and has a fixed
+  base of `0x400000`.
+- SHSTK is a hardware-protected shadow stack which mirrors return addresses 
+  and detects tampering of the normal stack's return addresses. This defeats
+  many return-address overwrites and ROP techniques, but effectiveness depends
+  on hardware and OS support.
+- IBT is Indirect Branch Tracking and requires indirect calls/jumps to
+  start at special `endbranch` targets. This helps detect jumps to unexpected
+  addresses. This makes ROP harder but also depends on hardware and OS support.
+- The binary's symbol table and names have not been stripped, making it easier
+  for an attacker to find functions and understand control flow better.
+- Debuginfo greatly eases reverse engineering and exploitation because it contains
+  things like source file name, line numbers, variable names, and type info.
+- Taking all this into account this binary is still vulnerable to attacks
+  even though the security mitigations raise the difficulty level.
+
+== Question 2
+
+Besides local variables, function arguments, return addresses, canaries,
+pointers into libc, and callee-saved registers are saved on the stack.
+This can make format string attacks especially dangerous since they can
+read a lot of sensitive data.
+
+= Part 4
+
+== Question 1
+
+It is possible to achieve arbitrary code execution in modern systems using
+gadgets from libraries such as libc because libc has a lot of functions,
+and therefore gadgets, to choose from. You can pop values from the stack
+into registers and return to a function that executes as if it were called.
+
+== Question 2
+
+This is a call graph and my change would have an arrow going from `game` to
+`print_flag` and remove the arrow going from `game` to `main`.
+
+== Question 3
+
+One major issue with symbolic execution is path explosion.
+The number of possible execution paths grows exponentially with the
+number of conditional branches in the program. Concolic execution
+(short for concrete + symbolic execution) mitigates path explosion by
+combining concrete execution with symbolic tracking. Instead of
+exploring all paths simultaneously, concolic execution runs the
+program with specific concrete inputs, following one concrete path at
+a time while collecting symbolic constraints along that path. It then
+systematically modifies one constraint at a time to generate new
+inputs that explore different paths in subsequent runs.
+
+== Question 4
+
+If the stack is executable you can perform the attack by using a
+NOP-sled (very large region of NOPs) followed by your shellcode,
+so instead of needing to jump to a specific address, you only need
+to jump to somewhere in the sled. With a bigger buffer overflow
+attack, the probability of success becomes higher.
